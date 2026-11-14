@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0B0E13">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>MyShape Corrida</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Saira+Semi+Condensed:wght@600;700;800&display=swap">
+<style>
+/* Layout: uma tela de corrida (painel grande) + histórico abaixo; mesmo visual do MyShape */
+:root {
+  color-scheme: dark;
+  --bg: #0B0E13; --surface: #131822; --surface-2: #1A2130; --line: #273042;
+  --fg: #E9EDF4; --muted: #8C97AA; --accent: #4C82FF; --accent-ink: #fff; --accent-soft: rgba(76,130,255,.16);
+  --red: #EF5257; --yellow: #F4C84A; --green: #3DB57A;
+  --display: "Saira Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 15px; overflow-x: hidden; touch-action: pan-y; -webkit-text-size-adjust: 100%; }
+button { font: inherit; color: inherit; cursor: pointer; touch-action: manipulation; }
+.wrap { max-width: 560px; margin: 0 auto; padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(28px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); display: grid; gap: 14px; }
+.top { display: flex; align-items: center; gap: 10px; }
+.brand { font-family: var(--display); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; font-size: 17px; display: flex; align-items: center; gap: 8px; flex: 1; }
+.brand svg { width: 28px; height: 28px; }
+.gps { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); padding: 5px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); white-space: nowrap; }
+.gps i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.gps[data-q="good"] i { background: var(--green); } .gps[data-q="ok"] i { background: var(--yellow); } .gps[data-q="bad"] i { background: var(--red); }
+.panel { border-radius: 22px; padding: 18px; background: radial-gradient(100% 90% at 50% 0%, var(--accent-soft), transparent 70%), var(--surface); border: 1px solid var(--line); display: grid; gap: 14px; text-align: center; }
+.panel.paused { border-color: var(--yellow); }
+.state { font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.panel.rec .state { color: var(--red); } .panel.paused .state { color: var(--yellow); }
+.dist { font-family: var(--display); font-weight: 800; font-size: clamp(76px, 26vw, 120px); line-height: .9; font-variant-numeric: tabular-nums; }
+.dist small { font-size: 26px; color: var(--muted); font-weight: 700; margin-left: 4px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.m { background: var(--surface-2); border-radius: 14px; padding: 10px 6px; display: grid; gap: 2px; }
+.m b { font-family: var(--display); font-weight: 700; font-size: 26px; font-variant-numeric: tabular-nums; line-height: 1.05; }
+.m span { font-size: 10.5px; color: var(--muted); font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.btns { display: flex; gap: 10px; }
+.btn { flex: 1; border: 1px solid transparent; border-radius: 16px; padding: 16px; font-family: var(--display); font-weight: 700; font-size: 18px; letter-spacing: .04em; text-transform: uppercase; background: var(--surface-2); display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 58px; }
+.btn.go { background: var(--green); color: #fff; } .btn.stop { background: var(--red); color: #fff; } .btn.pri { background: var(--accent); color: #fff; }
+.btn.ghost { background: transparent; border-color: var(--line); font-size: 15px; min-height: 46px; padding: 10px; }
+.btn:disabled { opacity: .45; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: grid; gap: 10px; }
+h2 { font-family: var(--display); font-size: 19px; margin: 0; }
+.muted { color: var(--muted); } .note { font-size: 12.5px; color: var(--muted); margin: 0; line-height: 1.4; }
+.route { width: 100%; height: auto; background: var(--surface-2); border-radius: 12px; display: block; }
+.route path { fill: none; stroke: var(--accent); stroke-width: 3.2; stroke-linejoin: round; stroke-linecap: round; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; }
+td, th { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: left; } th { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.row { display: flex; align-items: center; gap: 10px; justify-content: space-between; flex-wrap: wrap; }
+.sw { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.sw input { width: 20px; height: 20px; accent-color: var(--accent); }
+.run { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.run:last-child { border-bottom: 0; }
+.run .t { flex: 1; min-width: 0; } .run b { display: block; } .run small { color: var(--muted); }
+.mini { border: 1px solid var(--line); background: var(--surface-2); border-radius: 10px; padding: 8px 10px; font-weight: 600; font-size: 13px; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom)); background: var(--fg); color: var(--bg); padding: 10px 14px; border-radius: 12px; font-weight: 600; max-width: calc(100% - 32px); z-index: 9; }
+.warn { border-color: var(--yellow); }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><circle fill="#4C82FF" cx="16" cy="5.2" r="3.6"/><path fill="#4C82FF" d="M4.6 11.2 Q16 8.4 27.4 11.2 L29.6 19.6 Q30 21 28.6 21.2 L26.4 21.4 L24.9 15.6 L20.2 27.6 Q16 29.2 11.8 27.6 L7.1 15.6 L5.6 21.4 L3.4 21.2 Q2 21 2.4 19.6 Z"/></svg>MyShape Corrida</div>
+    <span class="gps" id="gps" data-q="none"><i></i><span id="gpsTxt">GPS desligado</span></span>
+  </header>
+
+  <section class="panel" id="panel">
+    <div class="state" id="state">Pronto para começar</div>
+    <div class="dist"><span id="dist">0,00</span><small>km</small></div>
+    <div class="grid3">
+      <div class="m"><b id="time">00:00</b><span>Tempo</span></div>
+      <div class="m"><b id="paceNow">—</b><span>Ritmo atual</span></div>
+      <div class="m"><b id="paceAvg">—</b><span>Ritmo médio</span></div>
+      <div class="m"><b id="steps">0</b><span>Passos</span></div>
+      <div class="m"><b id="cad">—</b><span>Cadência</span></div>
+      <div class="m"><b id="kcal">0</b><span>kcal</span></div>
+    </div>
+    <div class="btns" id="btns"></div>
+  </section>
+
+  <section class="card" id="routeCard" hidden><h2>Trajeto</h2><div id="route"></div></section>
+  <section class="card" id="splitCard" hidden><h2>Parciais por km</h2><table><thead><tr><th>Km</th><th>Ritmo</th><th>Tempo</th></tr></thead><tbody id="splits"></tbody></table></section>
+
+  <section class="card">
+    <h2>Configurações</h2>
+    <label class="sw"><input type="checkbox" id="optVoice" checked> Avisar por voz a cada km</label>
+    <label class="sw"><input type="checkbox" id="optPause" checked> Pausa automática quando você para</label>
+    <label class="sw"><input type="checkbox" id="optSteps" checked> Contar passos pelo sensor de movimento</label>
+    <div class="row"><span class="note">Peso para calorias</span><input id="optKg" inputmode="decimal" value="60.6" style="width:80px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:8px;color:var(--fg);font-size:16px;text-align:center"> kg</div>
+    <p class="note">Mantenha esta página aberta e a tela ligada durante a corrida: o navegador só usa o GPS com a página na frente. A tela fica acesa sozinha enquanto grava.</p>
+  </section>
+
+  <section class="card">
+    <div class="row"><h2>Minhas corridas</h2><span class="note" id="runCount"></span></div>
+    <div id="runs"></div>
+    <p class="note">Toque em <b>Enviar ao MyShape</b> e salve o arquivo na pasta <b>MyShape Corridas</b> do seu Google Drive. A aba Cardio do MyShape busca as corridas novas dessa pasta sozinha.</p>
+  </section>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+"use strict";
+/* Regras de filtragem inspiradas no OpenTracks (Apache-2.0): precisão mínima, salto máximo,
+   distância mínima entre pontos e pausa automática por velocidade baixa. */
+const CFG = { maxAcc: 35, maxJump: 200, minStep: 4, maxSpeed: 12, idleSpeed: 0.6, idleMs: 10000, resumeDist: 10 };
+const LS_RUN = 'msr_current', LS_HIST = 'msr_runs', LS_OPT = 'msr_opts';
+const $ = s => document.querySelector(s);
+const pad = n => String(n).padStart(2, '0');
+const fmtT = ms => { const s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return h ? `${h}:${pad(m)}:${pad(x)}` : `${pad(m)}:${pad(x)}`; };
+const fmtPace = minKm => (minKm == null || !isFinite(minKm) || minKm <= 0 || minKm > 60) ? '—' : `${Math.floor(minKm)}:${pad(Math.round((minKm % 1) * 60) % 60)}`;
+const fmtKm = m => (m / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } };
+let toastT; function toast(m) { const t = $('#toast'); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 3200); }
+function hav(a, b) { const R = 6371008.8, r = Math.PI / 180, dLa = (b.lat - a.lat) * r, dLo = (b.lon - a.lon) * r, x = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLo / 2) ** 2; return 2 * R * Math.asin(Math.min(1, Math.sqrt(x))); }
+
+const opts = Object.assign({ voice: true, pause: true, steps: true, kg: 60.6 }, lsGet(LS_OPT) || {});
+$('#optVoice').checked = opts.voice; $('#optPause').checked = opts.pause; $('#optSteps').checked = opts.steps; $('#optKg').value = String(opts.kg).replace('.', ',');
+['optVoice', 'optPause', 'optSteps'].forEach(id => $('#' + id).addEventListener('change', e => { opts[{ optVoice: 'voice', optPause: 'pause', optSteps: 'steps' }[id]] = e.target.checked; lsSet(LS_OPT, opts); }));
+$('#optKg').addEventListener('change', e => { const v = parseFloat(e.target.value.replace(',', '.')); if (v > 20 && v < 300) { opts.kg = v; lsSet(LS_OPT, opts); } });
+
+/* ---------- estado da corrida ---------- */
+// run: {id, start, status:'rec'|'paused'|'auto', pts:[{lat,lon,t,ele,acc,spm}], dist, movingMs, lastTick, segStart, splits:[{ms}], steps, lastGood, idleSince}
+let run = lsGet(LS_RUN), watchId = null, wake = null, lastFix = null, recentPts = [];
+function save() { if (run) lsSet(LS_RUN, run); }
+
+function gpsQuality(acc) { const el = $('#gps'); if (acc == null) { el.dataset.q = 'none'; $('#gpsTxt').textContent = 'GPS desligado'; return; } el.dataset.q = acc <= 15 ? 'good' : acc <= CFG.maxAcc ? 'ok' : 'bad'; $('#gpsTxt').textContent = `GPS ±${Math.round(acc)} m`; }
+
+function startGps() {
+  if (!('geolocation' in navigator)) { toast('Este navegador não tem GPS.'); return false; }
+  if (watchId != null) return true;
+  watchId = navigator.geolocation.watchPosition(onFix, err => {
+    gpsQuality(null);
+    toast(err.code === 1 ? 'Permita o acesso à localização para medir a corrida.' : 'Sem sinal de GPS. Vá para um lugar aberto.');
+  }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+  return true;
+}
+function stopGps() { if (watchId != null) navigator.geolocation.clearWatch(watchId); watchId = null; gpsQuality(null); }
+
+function onFix(pos) {
+  const c = pos.coords, p = { lat: c.latitude, lon: c.longitude, t: pos.timestamp || Date.now(), acc: c.accuracy, ele: c.altitude != null ? Math.round(c.altitude * 10) / 10 : null };
+  lastFix = p; gpsQuality(c.accuracy);
+  if (!run || run.status === 'paused') return;
+  if (c.accuracy > CFG.maxAcc) return; // sinal fraco: ignora
+  const prev = run.lastGood;
+  if (!prev) { run.lastGood = p; run.pts.push(p); save(); return; }
+  const d = hav(prev, p), dt = (p.t - prev.t) / 1000;
+  if (dt <= 0) return;
+  if (d > CFG.maxJump || d / dt > CFG.maxSpeed) { run.lastGood = p; return; } // salto de GPS: novo segmento, sem somar
+  if (d < Math.max(CFG.minStep, c.accuracy * 0.4)) { checkIdle(p); return; } // tremida parado: não soma
+  // em movimento
+  if (run.status === 'auto') { run.status = 'rec'; run.lastTick = Date.now(); say('Corrida retomada'); buzz([80]); }
+  const before = run.dist; run.dist += d; run.lastGood = p; run.idleSince = null;
+  p.spm = stepCad(); run.pts.push(p);
+  recentPts.push({ t: p.t, d: run.dist }); recentPts = recentPts.filter(x => p.t - x.t <= 30000);
+  // parciais por km
+  const kBefore = Math.floor(before / 1000), kNow = Math.floor(run.dist / 1000);
+  if (kNow > kBefore) { tickTime(); const lapMs = run.movingMs - run.splitBase; run.splits.push({ ms: lapMs }); run.splitBase = run.movingMs; announceKm(kNow, lapMs); }
+  save(); render();
+}
+function checkIdle(p) {
+  if (!opts.pause || run.status !== 'rec') return;
+  if (!run.idleSince) run.idleSince = p.t;
+  else if (p.t - run.idleSince >= CFG.idleMs) { tickTime(); const idle = Math.max(0, Date.now() - run.idleSince); run.movingMs = Math.max(run.splitBase, run.movingMs - idle); run.status = 'auto'; save(); render(); say('Pausa automática'); buzz([60, 60, 60]); }
+}
+/* tempo em movimento */
+function tickTime() { if (!run) return; const now = Date.now(); if (run.status === 'rec') run.movingMs += now - (run.lastTick || now); run.lastTick = now; }
+setInterval(() => { if (run && run.status === 'rec') { tickTime(); save(); } render(); }, 1000);
+
+/* ---------- passos pelo acelerômetro (detecção de picos) ---------- */
+let stepState = { g: 9.81, lastStep: 0, above: false, times: [] }, motionOn = false;
+function onMotion(e) {
+  if (!run || run.status !== 'rec' || !opts.steps) return;
+  const a = e.accelerationIncludingGravity; if (!a || a.x == null) return;
+  const mag = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z), st = stepState;
+  st.g = st.g * 0.9 + mag * 0.1; // média móvel (componente da gravidade)
+  const dyn = mag - st.g, now = Date.now();
+  if (!st.above && dyn > 1.6 && now - st.lastStep > 260) { st.above = true; st.lastStep = now; run.steps++; st.times.push(now); st.times = st.times.filter(t => now - t < 10000); }
+  else if (st.above && dyn < 0.4) st.above = false;
+}
+function stepCad() { const t = stepState.times; if (t.length < 4) return null; const span = (t[t.length - 1] - t[0]) / 60000; return span > 0 ? Math.round((t.length - 1) / span) : null; }
+async function enableMotion() {
+  if (motionOn || !opts.steps) return;
+  try { if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') { const r = await DeviceMotionEvent.requestPermission(); if (r !== 'granted') { toast('Sem permissão de movimento: os passos não serão contados.'); return; } } } catch (e) { }
+  window.addEventListener('devicemotion', onMotion); motionOn = true;
+}
+
+/* ---------- voz, vibração e tela ligada ---------- */
+function say(t) { if (!opts.voice || !('speechSynthesis' in window)) return; try { const u = new SpeechSynthesisUtterance(t); u.lang = 'pt-BR'; u.rate = 1.05; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) { } }
+function buzz(p) { try { navigator.vibrate && navigator.vibrate(p); } catch (e) { } }
+function announceKm(k, lapMs) { const mm = Math.floor(lapMs / 60000), ss = Math.round(lapMs % 60000 / 1000); say(`${k} quilômetro${k > 1 ? 's' : ''}. Ritmo ${mm} minutos e ${ss} segundos. Tempo total ${fmtSpoken(run.movingMs)}.`); buzz([300, 120, 300]); }
+function fmtSpoken(ms) { const m = Math.floor(ms / 60000), s = Math.round(ms % 60000 / 1000); return `${m} minutos${s ? ' e ' + s + ' segundos' : ''}`; }
+async function keepAwake(on) { try { if (on && 'wakeLock' in navigator && !wake) { wake = await navigator.wakeLock.request('screen'); wake.addEventListener('release', () => { wake = null; }); } else if (!on && wake) { await wake.release(); wake = null; } } catch (e) { } }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && run && run.status !== 'paused') { keepAwake(true); tickTime(); render(); } else if (document.visibilityState === 'hidden' && run && run.status === 'rec') { tickTime(); save(); } });
+
+/* ---------- ações ---------- */
+async function start() {
+  if (!startGps()) return;
+  run = { id: 'r' + Date.now().toString(36), start: Date.now(), status: 'rec', pts: [], dist: 0, movingMs: 0, lastTick: Date.now(), splits: [], splitBase: 0, steps: 0, lastGood: null, idleSince: null };
+  stepState.times = []; recentPts = [];
+  save(); await enableMotion(); keepAwake(true); say('Corrida iniciada'); buzz([150]); render();
+}
+function pauseToggle() { if (!run) return; if (run.status === 'paused') { run.status = 'rec'; run.lastTick = Date.now(); run.lastGood = null; startGps(); say('Corrida retomada'); } else { tickTime(); run.status = 'paused'; say('Corrida pausada'); } save(); render(); }
+function finish() {
+  if (!run) return; tickTime();
+  if (run.dist < 30) { if (!confirmStep('Corrida muito curta. Toque de novo em Finalizar para descartar.')) return; run = null; localStorage.removeItem(LS_RUN); stopGps(); keepAwake(false); render(); return; }
+  const done = { id: run.id, start: run.start, end: Date.now(), dist: Math.round(run.dist), movingMs: run.movingMs, steps: run.steps, splits: run.splits, kcal: kcalOf(run), pts: simplify(run.pts, 3000) };
+  const hist = lsGet(LS_HIST) || []; hist.unshift(done); lsSet(LS_HIST, hist.slice(0, 60));
+  run = null; localStorage.removeItem(LS_RUN); stopGps(); keepAwake(false); say(`Corrida finalizada. ${fmtKm(done.dist).replace(',', ' vírgula ')} quilômetros.`); render(); renderRuns();
+  toast('Corrida salva. Toque em Enviar ao MyShape.');
+}
+let confirmAt = 0; function confirmStep(msg) { if (Date.now() - confirmAt < 4000) { confirmAt = 0; return true; } confirmAt = Date.now(); toast(msg); return false; }
+function kcalOf(r) { const km = r.dist / 1000, minKm = km ? r.movingMs / 60000 / km : 99; return Math.round(opts.kg * km * (minKm < 9 ? 1.0 : 0.6)); }
+function simplify(pts, max) { if (pts.length <= max) return pts; const st = Math.ceil(pts.length / max); return pts.filter((_, i) => i % st === 0 || i === pts.length - 1); }
+
+/* ---------- GPX ---------- */
+function toGpx(r) {
+  const iso = t => new Date(t).toISOString(), name = `Corrida ${new Date(r.start).toLocaleDateString('pt-BR')} ${new Date(r.start).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+  const trk = r.pts.map(p => `<trkpt lat="${p.lat.toFixed(6)}" lon="${p.lon.toFixed(6)}">${p.ele != null ? `<ele>${p.ele}</ele>` : ''}<time>${iso(p.t)}</time>${p.spm ? `<extensions><gpxtpx:TrackPointExtension><gpxtpx:cad>${Math.round(p.spm / 2)}</gpxtpx:cad></gpxtpx:TrackPointExtension></extensions>` : ''}</trkpt>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="MyShape Corrida" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1" xmlns:myshape="https://myshape.app/run/v1">
+<metadata><name>${name}</name><time>${iso(r.start)}</time><desc>myshape:steps=${r.steps};moving_ms=${r.movingMs};dist_m=${r.dist};kcal=${r.kcal}</desc></metadata>
+<trk><name>${name}</name><type>running</type><trkseg>
+${trk}
+</trkseg></trk></gpx>`;
+}
+async function sendRun(id) {
+  const r = (lsGet(LS_HIST) || []).find(x => x.id === id); if (!r) return;
+  const d = new Date(r.start), fname = `myshape-corrida-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.gpx`;
+  const file = new File([toGpx(r)], fname, { type: 'application/gpx+xml' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: 'Corrida MyShape', text: 'Salve na pasta MyShape Corridas do Google Drive' }); markSent(id); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = fname; document.body.appendChild(a); a.click(); a.remove(); markSent(id);
+  toast('Arquivo baixado. Envie para a pasta MyShape Corridas do Google Drive.');
+}
+function markSent(id) { const h = lsGet(LS_HIST) || []; const r = h.find(x => x.id === id); if (r) { r.sent = Date.now(); lsSet(LS_HIST, h); renderRuns(); } }
+function delRun(id) { if (!confirmStep('Toque de novo na lixeira para apagar esta corrida do celular.')) return; lsSet(LS_HIST, (lsGet(LS_HIST) || []).filter(x => x.id !== id)); renderRuns(); }
+
+/* ---------- tela ---------- */
+function routeSvg(pts) {
+  const P = pts.filter((_, i, a) => i % Math.max(1, Math.ceil(a.length / 500)) === 0 || i === a.length - 1); if (P.length < 2) return '';
+  const lat0 = P[0].lat, k = Math.cos(lat0 * Math.PI / 180), xs = P.map(p => p.lon * k), ys = P.map(p => -p.lat);
+  const mnx = Math.min(...xs), mxx = Math.max(...xs), mny = Math.min(...ys), mxy = Math.max(...ys), W = 320, H = 200, pd = 14;
+  const sc = Math.min((W - 2 * pd) / ((mxx - mnx) || 1e-6), (H - 2 * pd) / ((mxy - mny) || 1e-6)), ox = (W - (mxx - mnx) * sc) / 2, oy = (H - (mxy - mny) * sc) / 2;
+  const X = i => (ox + (xs[i] - mnx) * sc).toFixed(1), Y = i => (oy + (ys[i] - mny) * sc).toFixed(1), n = P.length - 1;
+  return `<svg class="route" viewBox="0 0 ${W} ${H}"><path d="${P.map((_, i) => `${i ? 'L' : 'M'}${X(i)},${Y(i)}`).join('')}"/><circle cx="${X(0)}" cy="${Y(0)}" r="6" fill="#3DB57A"/><circle cx="${X(n)}" cy="${Y(n)}" r="6" fill="#EF5257"/></svg>`;
+}
+function render() {
+  const r = run, panel = $('#panel');
+  panel.className = 'panel' + (r ? (r.status === 'rec' ? ' rec' : ' paused') : '');
+  $('#state').textContent = !r ? 'Pronto para começar' : r.status === 'rec' ? '● Gravando' : r.status === 'auto' ? 'Pausa automática · volte a correr' : 'Pausado';
+  const dist = r ? r.dist : 0, ms = r ? r.movingMs + (r.status === 'rec' ? Date.now() - (r.lastTick || Date.now()) : 0) : 0;
+  $('#dist').textContent = fmtKm(dist); $('#time').textContent = fmtT(ms);
+  $('#paceAvg').textContent = dist > 50 ? fmtPace(ms / 60000 / (dist / 1000)) : '—';
+  let now = '—'; if (r && r.status === 'rec' && recentPts.length > 1) { const a = recentPts[0], b = recentPts[recentPts.length - 1]; if (b.d - a.d > 20) now = fmtPace((b.t - a.t) / 60000 / ((b.d - a.d) / 1000)); }
+  $('#paceNow').textContent = now; $('#steps').textContent = (r ? r.steps : 0).toLocaleString('pt-BR'); $('#cad').textContent = r && r.status === 'rec' && stepCad() ? stepCad() : '—'; $('#kcal').textContent = r ? kcalOf(r) : 0;
+  $('#btns').innerHTML = !r ? `<button class="btn go" id="bStart">▶ Começar corrida</button>`
+    : `<button class="btn ${r.status === 'paused' ? 'go' : ''}" id="bPause">${r.status === 'paused' ? '▶ Retomar' : '❚❚ Pausar'}</button><button class="btn stop" id="bFin">■ Finalizar</button>`;
+  const bs = $('#bStart'), bp = $('#bPause'), bf = $('#bFin'); if (bs) bs.onclick = start; if (bp) bp.onclick = pauseToggle; if (bf) bf.onclick = () => { if (confirmStep('Toque de novo em Finalizar para encerrar a corrida.')) finish(); };
+  $('#routeCard').hidden = !(r && r.pts.length > 1); if (r && r.pts.length > 1) $('#route').innerHTML = routeSvg(r.pts);
+  $('#splitCard').hidden = !(r && r.splits.length); if (r) $('#splits').innerHTML = r.splits.map((s, i) => `<tr><td>${i + 1}</td><td>${fmtPace(s.ms / 60000)} /km</td><td>${fmtT(r.splits.slice(0, i + 1).reduce((a, x) => a + x.ms, 0))}</td></tr>`).join('');
+}
+function renderRuns() {
+  const h = lsGet(LS_HIST) || []; $('#runCount').textContent = h.length ? `${h.length} no celular` : '';
+  $('#runs').innerHTML = h.length ? h.map(r => `<div class="run"><div class="t"><b>${new Date(r.start).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })} · ${fmtKm(r.dist)} km</b><small>${fmtT(r.movingMs)} · ${fmtPace(r.movingMs / 60000 / (r.dist / 1000))}/km · ${r.steps.toLocaleString('pt-BR')} passos${r.sent ? ' · enviada ✓' : ''}</small></div><button class="mini" data-send="${r.id}">${r.sent ? 'Reenviar' : 'Enviar ao MyShape'}</button><button class="mini" data-del="${r.id}" aria-label="Apagar">🗑</button></div>`).join('') : '<p class="note">Nenhuma corrida ainda.</p>';
+}
+document.addEventListener('click', e => { const s = e.target.closest('[data-send]'), d = e.target.closest('[data-del]'); if (s) sendRun(s.dataset.send); if (d) delRun(d.dataset.del); });
+
+/* retomar corrida após recarregar a página */
+if (run) { if (run.status !== 'paused') { run.lastTick = Date.now(); run.lastGood = null; } startGps(); keepAwake(true); toast('Corrida em andamento recuperada.'); window.addEventListener('click', enableMotion, { once: true }); }
+render(); renderRuns();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
+</script>
+</body>
+</html>
