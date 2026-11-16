@@ -144,6 +144,14 @@ function startGps() {
   }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
   return true;
 }
+function hideBlock() { const el = $('#block'); if (el.dataset.k === 'diag') { el.hidden = true; el.dataset.k = ''; } }
+function diagnose() {
+  if (!run || run.lastGood) return;
+  const el = $('#block');
+  if (run.lastAcc > 500) { el.dataset.k = 'diag'; el.innerHTML = `<b>O celular está mandando localização APROXIMADA (±${fmtAcc(run.lastAcc)})</b><p class="note" style="margin:0">Com ela não dá para medir metros. Ative a localização precisa:<br>• <b>Android:</b> Configurações → Apps → Chrome → Permissões → Localização → ligue <b>“Usar localização precisa”</b>. Confira também Configurações → Localização → <b>Precisão da localização do Google</b> ligada.<br>• <b>iPhone:</b> Ajustes → Privacidade → Serviços de Localização → Safari (Sites) → <b>Localização Exata</b> ligada.<br>Depois recarregue esta página.</p>`; el.hidden = false; }
+}
+function fmtAcc(a) { return a >= 1000 ? (a / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' km' : Math.round(a) + ' m'; }
+setInterval(() => { if (run && run.status === 'rec' && !run.lastGood && !run.fixes && Date.now() - run.start > 12000) { const el = $('#block'); if (el.hidden) { el.dataset.k = 'diag'; el.innerHTML = '<b>O GPS não está respondendo</b><p class="note" style="margin:0">Nenhuma localização chegou ainda. Confira:<br>• A <b>localização do celular</b> está ligada (puxe a barra de cima e veja o ícone de Localização).<br>• A página está aberta no <b>Chrome</b> ou no <b>Safari</b>, não dentro do app do Claude.<br>• O site tem permissão: toque no ícone ao lado do endereço → Permissões → Localização → <b>Permitir</b>.<br>Depois recarregue a página.</p>'; el.hidden = false; } } }, 3000);
 function showBlock(html) { const el = $('#block'); el.innerHTML = '<b>GPS indisponível</b><p class="note" style="margin:0">' + html + '</p>'; el.hidden = false; }
 function stopGps() { if (watchId != null) navigator.geolocation.clearWatch(watchId); watchId = null; gpsQuality(null); }
 
@@ -151,8 +159,12 @@ function onFix(pos) {
   const c = pos.coords, p = { lat: c.latitude, lon: c.longitude, t: pos.timestamp || Date.now(), acc: c.accuracy, ele: c.altitude != null ? Math.round(c.altitude * 10) / 10 : null };
   lastFix = p; gpsQuality(c.accuracy);
   if (!run || run.status === 'paused') return;
-  run.fixes = (run.fixes || 0) + 1;
-  if (c.accuracy > CFG.maxAcc) { run.weak = (run.weak || 0) + 1; render(); return; } // sinal muito fraco: ignora
+  run.fixes = (run.fixes || 0) + 1; run.lastAcc = c.accuracy; run.bestAcc = Math.min(run.bestAcc || 1e9, c.accuracy); if (!run.firstFix) run.firstFix = Date.now();
+  // aquecimento: se em 25 s nenhum ponto passou de 65 m, aceita até 120 m (melhor do que não medir)
+  if (!run.relaxed && !run.lastGood && Date.now() - run.firstFix > 25000) run.relaxed = true; // GPS fraco por muito tempo: modo tolerante até o fim
+  const lim = run.relaxed ? 120 : CFG.maxAcc;
+  if (c.accuracy > lim) { run.weak = (run.weak || 0) + 1; diagnose(); render(); return; } // sinal fraco demais: ignora
+  hideBlock();
   // suavização: média dos últimos pontos (reduz a tremida do GPS parado)
   rawBuf.push({ lat: p.lat, lon: p.lon, t: p.t }); rawBuf = rawBuf.filter(x => p.t - x.t <= 15000).slice(-12);
   const sm = rawBuf.slice(-5), ps = { lat: sm.reduce((a, x) => a + x.lat, 0) / sm.length, lon: sm.reduce((a, x) => a + x.lon, 0) / sm.length, t: p.t, acc: p.acc, ele: p.ele };
@@ -268,7 +280,7 @@ function render() {
   const r = run, panel = $('#panel');
   panel.className = 'panel' + (r ? (r.status === 'rec' ? ' rec' : ' paused') : '');
   const waiting = r && r.status === 'rec' && !r.lastGood;
-  $('#state').textContent = !r ? 'Pronto para começar' : waiting ? (r.fixes ? `Procurando sinal do GPS… (${r.weak || 0} sinal(is) fraco(s) ignorado(s))` : 'Aguardando o GPS… vá para um lugar aberto') : r.status === 'rec' ? '● Gravando' : r.status === 'auto' ? 'Pausa automática · volte a correr' : 'Pausado';
+  $('#state').textContent = !r ? 'Pronto para começar' : waiting ? (r.fixes ? (r.lastAcc > 500 ? `Localização aproximada (±${fmtAcc(r.lastAcc)}) · veja o aviso abaixo` : `Calibrando o GPS: precisão ±${fmtAcc(r.lastAcc)} (precisa até ±${r.relaxed || Date.now() - (r.firstFix || Date.now()) > 25000 ? 120 : CFG.maxAcc} m)`) : 'Esperando a primeira localização do celular…') : r.status === 'rec' ? '● Gravando' : r.status === 'auto' ? 'Pausa automática · volte a correr' : 'Pausado';
   const dist = r ? r.dist : 0, ms = r ? r.movingMs + (r.status === 'rec' ? Date.now() - (r.lastTick || Date.now()) : 0) : 0;
   if (dist < 1000) { $('#dist').textContent = Math.round(dist).toLocaleString('pt-BR'); $('#distU').textContent = 'm'; } else { $('#dist').textContent = fmtKm(dist); $('#distU').textContent = 'km'; }
   $('#distSub').textContent = r ? `${Math.round(dist).toLocaleString('pt-BR')} metros percorridos` : '\u00a0'; $('#time').textContent = fmtT(ms);
