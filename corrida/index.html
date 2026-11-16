@@ -73,7 +73,8 @@ td, th { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: lef
 
   <section class="panel" id="panel">
     <div class="state" id="state">Pronto para começar</div>
-    <div class="dist"><span id="dist">0,00</span><small>km</small></div>
+    <div class="dist"><span id="dist">0</span><small id="distU">m</small></div>
+    <div class="note" id="distSub" style="margin-top:-6px">&nbsp;</div>
     <div class="grid3">
       <div class="m"><b id="time">00:00</b><span>Tempo</span></div>
       <div class="m"><b id="paceNow">—</b><span>Ritmo atual</span></div>
@@ -85,6 +86,7 @@ td, th { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: lef
     <div class="btns" id="btns"></div>
   </section>
 
+  <section class="card warn" id="block" hidden></section>
   <section class="card" id="routeCard" hidden><h2>Trajeto</h2><div id="route"></div></section>
   <section class="card" id="splitCard" hidden><h2>Parciais por km</h2><table><thead><tr><th>Km</th><th>Ritmo</th><th>Tempo</th></tr></thead><tbody id="splits"></tbody></table></section>
 
@@ -109,7 +111,7 @@ td, th { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: lef
 "use strict";
 /* Regras de filtragem inspiradas no OpenTracks (Apache-2.0): precisão mínima, salto máximo,
    distância mínima entre pontos e pausa automática por velocidade baixa. */
-const CFG = { maxAcc: 35, maxJump: 200, minStep: 4, maxSpeed: 12, idleSpeed: 0.6, idleMs: 10000, resumeDist: 10 };
+const CFG = { maxAcc: 65, maxJump: 200, minStep: 3, stepAccFactor: 0.2, stepMax: 10, maxSpeed: 12, idleSpeed: 0.6, idleMs: 15000, resumeDist: 10 };
 const LS_RUN = 'msr_current', LS_HIST = 'msr_runs', LS_OPT = 'msr_opts';
 const $ = s => document.querySelector(s);
 const pad = n => String(n).padStart(2, '0');
@@ -128,7 +130,7 @@ $('#optKg').addEventListener('change', e => { const v = parseFloat(e.target.valu
 
 /* ---------- estado da corrida ---------- */
 // run: {id, start, status:'rec'|'paused'|'auto', pts:[{lat,lon,t,ele,acc,spm}], dist, movingMs, lastTick, segStart, splits:[{ms}], steps, lastGood, idleSince}
-let run = lsGet(LS_RUN), watchId = null, wake = null, lastFix = null, recentPts = [];
+let run = lsGet(LS_RUN), watchId = null, wake = null, lastFix = null, recentPts = [], rawBuf = [];
 function save() { if (run) lsSet(LS_RUN, run); }
 
 function gpsQuality(acc) { const el = $('#gps'); if (acc == null) { el.dataset.q = 'none'; $('#gpsTxt').textContent = 'GPS desligado'; return; } el.dataset.q = acc <= 15 ? 'good' : acc <= CFG.maxAcc ? 'ok' : 'bad'; $('#gpsTxt').textContent = `GPS ±${Math.round(acc)} m`; }
@@ -138,26 +140,35 @@ function startGps() {
   if (watchId != null) return true;
   watchId = navigator.geolocation.watchPosition(onFix, err => {
     gpsQuality(null);
-    toast(err.code === 1 ? 'Permita o acesso à localização para medir a corrida.' : 'Sem sinal de GPS. Vá para um lugar aberto.');
+    if (err.code === 1) showBlock('A localização foi bloqueada. Abra esta página no <b>Chrome</b> (Android) ou no <b>Safari</b> (iPhone), não dentro do app do Claude, e permita a localização: toque no cadeado ao lado do endereço → Permissões → Localização → Permitir.'); else toast('Sem sinal de GPS. Vá para um lugar aberto.');
   }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
   return true;
 }
+function showBlock(html) { const el = $('#block'); el.innerHTML = '<b>GPS indisponível</b><p class="note" style="margin:0">' + html + '</p>'; el.hidden = false; }
 function stopGps() { if (watchId != null) navigator.geolocation.clearWatch(watchId); watchId = null; gpsQuality(null); }
 
 function onFix(pos) {
   const c = pos.coords, p = { lat: c.latitude, lon: c.longitude, t: pos.timestamp || Date.now(), acc: c.accuracy, ele: c.altitude != null ? Math.round(c.altitude * 10) / 10 : null };
   lastFix = p; gpsQuality(c.accuracy);
   if (!run || run.status === 'paused') return;
-  if (c.accuracy > CFG.maxAcc) return; // sinal fraco: ignora
+  run.fixes = (run.fixes || 0) + 1;
+  if (c.accuracy > CFG.maxAcc) { run.weak = (run.weak || 0) + 1; render(); return; } // sinal muito fraco: ignora
+  // suavização: média dos últimos pontos (reduz a tremida do GPS parado)
+  rawBuf.push({ lat: p.lat, lon: p.lon, t: p.t }); rawBuf = rawBuf.filter(x => p.t - x.t <= 15000).slice(-12);
+  const sm = rawBuf.slice(-5), ps = { lat: sm.reduce((a, x) => a + x.lat, 0) / sm.length, lon: sm.reduce((a, x) => a + x.lon, 0) / sm.length, t: p.t, acc: p.acc, ele: p.ele };
+  // parado? 1) velocidade informada pelo GPS ou 2) deslocamento líquido pequeno em ~10 s
+  const gpsStill = c.speed != null && c.speed >= 0 && c.speed < 0.35;
+  let netStill = false; if (rawBuf.length >= 8 && p.t - rawBuf[0].t >= 8000) { const avg = a => ({ lat: a.reduce((s, x) => s + x.lat, 0) / a.length, lon: a.reduce((s, x) => s + x.lon, 0) / a.length }); netStill = hav(avg(rawBuf.slice(0, 3)), avg(rawBuf.slice(-3))) < 5; }
   const prev = run.lastGood;
-  if (!prev) { run.lastGood = p; run.pts.push(p); save(); return; }
-  const d = hav(prev, p), dt = (p.t - prev.t) / 1000;
+  if (!prev) { run.lastGood = ps; run.pts.push(p); save(); render(); return; }
+  if (gpsStill || netStill) { run.lastGood = ps; checkIdle(p); return; } // parado: não soma
+  const d = hav(prev, ps), dt = (ps.t - prev.t) / 1000;
   if (dt <= 0) return;
-  if (d > CFG.maxJump || d / dt > CFG.maxSpeed) { run.lastGood = p; return; } // salto de GPS: novo segmento, sem somar
-  if (d < Math.max(CFG.minStep, c.accuracy * 0.4)) { checkIdle(p); return; } // tremida parado: não soma
+  if (d > CFG.maxJump || d / dt > CFG.maxSpeed) { run.lastGood = ps; rawBuf = [rawBuf[rawBuf.length - 1]]; return; } // salto de GPS: novo segmento, sem somar
+  if (d < Math.max(CFG.minStep, Math.min(c.accuracy * CFG.stepAccFactor, CFG.stepMax))) { checkIdle(p); return; } // tremida: ainda não soma
   // em movimento
   if (run.status === 'auto') { run.status = 'rec'; run.lastTick = Date.now(); say('Corrida retomada'); buzz([80]); }
-  const before = run.dist; run.dist += d; run.lastGood = p; run.idleSince = null;
+  const before = run.dist; run.dist += d; run.lastGood = ps; run.idleSince = null;
   p.spm = stepCad(); run.pts.push(p);
   recentPts.push({ t: p.t, d: run.dist }); recentPts = recentPts.filter(x => p.t - x.t <= 30000);
   // parciais por km
@@ -204,7 +215,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 async function start() {
   if (!startGps()) return;
   run = { id: 'r' + Date.now().toString(36), start: Date.now(), status: 'rec', pts: [], dist: 0, movingMs: 0, lastTick: Date.now(), splits: [], splitBase: 0, steps: 0, lastGood: null, idleSince: null };
-  stepState.times = []; recentPts = [];
+  stepState.times = []; recentPts = []; rawBuf = [];
   save(); await enableMotion(); keepAwake(true); say('Corrida iniciada'); buzz([150]); render();
 }
 function pauseToggle() { if (!run) return; if (run.status === 'paused') { run.status = 'rec'; run.lastTick = Date.now(); run.lastGood = null; startGps(); say('Corrida retomada'); } else { tickTime(); run.status = 'paused'; say('Corrida pausada'); } save(); render(); }
@@ -256,9 +267,11 @@ function routeSvg(pts) {
 function render() {
   const r = run, panel = $('#panel');
   panel.className = 'panel' + (r ? (r.status === 'rec' ? ' rec' : ' paused') : '');
-  $('#state').textContent = !r ? 'Pronto para começar' : r.status === 'rec' ? '● Gravando' : r.status === 'auto' ? 'Pausa automática · volte a correr' : 'Pausado';
+  const waiting = r && r.status === 'rec' && !r.lastGood;
+  $('#state').textContent = !r ? 'Pronto para começar' : waiting ? (r.fixes ? `Procurando sinal do GPS… (${r.weak || 0} sinal(is) fraco(s) ignorado(s))` : 'Aguardando o GPS… vá para um lugar aberto') : r.status === 'rec' ? '● Gravando' : r.status === 'auto' ? 'Pausa automática · volte a correr' : 'Pausado';
   const dist = r ? r.dist : 0, ms = r ? r.movingMs + (r.status === 'rec' ? Date.now() - (r.lastTick || Date.now()) : 0) : 0;
-  $('#dist').textContent = fmtKm(dist); $('#time').textContent = fmtT(ms);
+  if (dist < 1000) { $('#dist').textContent = Math.round(dist).toLocaleString('pt-BR'); $('#distU').textContent = 'm'; } else { $('#dist').textContent = fmtKm(dist); $('#distU').textContent = 'km'; }
+  $('#distSub').textContent = r ? `${Math.round(dist).toLocaleString('pt-BR')} metros percorridos` : '\u00a0'; $('#time').textContent = fmtT(ms);
   $('#paceAvg').textContent = dist > 50 ? fmtPace(ms / 60000 / (dist / 1000)) : '—';
   let now = '—'; if (r && r.status === 'rec' && recentPts.length > 1) { const a = recentPts[0], b = recentPts[recentPts.length - 1]; if (b.d - a.d > 20) now = fmtPace((b.t - a.t) / 60000 / ((b.d - a.d) / 1000)); }
   $('#paceNow').textContent = now; $('#steps').textContent = (r ? r.steps : 0).toLocaleString('pt-BR'); $('#cad').textContent = r && r.status === 'rec' && stepCad() ? stepCad() : '—'; $('#kcal').textContent = r ? kcalOf(r) : 0;
@@ -276,6 +289,8 @@ document.addEventListener('click', e => { const s = e.target.closest('[data-send
 
 /* retomar corrida após recarregar a página */
 if (run) { if (run.status !== 'paused') { run.lastTick = Date.now(); run.lastGood = null; } startGps(); keepAwake(true); toast('Corrida em andamento recuperada.'); window.addEventListener('click', enableMotion, { once: true }); }
+if (!window.isSecureContext) showBlock('Esta página precisa ser aberta pelo endereço https para usar o GPS.');
+else if (/; wv\)|FBAN|FBAV|Instagram|Claude/i.test(navigator.userAgent)) showBlock('Parece que esta página abriu dentro de outro app. Para o GPS funcionar, abra no <b>Chrome</b> ou no <b>Safari</b>: toque nos três pontinhos → “Abrir no navegador”.');
 render(); renderRuns();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
 </script>
