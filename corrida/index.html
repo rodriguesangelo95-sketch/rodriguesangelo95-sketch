@@ -75,6 +75,7 @@ td, th { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: lef
     <div class="state" id="state">Pronto para começar</div>
     <div class="dist"><span id="dist">0</span><small id="distU">m</small></div>
     <div class="note" id="distSub" style="margin-top:-6px">&nbsp;</div>
+    <div class="note" id="dbg" style="font-size:11.5px;opacity:.85"></div>
     <div class="grid3">
       <div class="m"><b id="time">00:00</b><span>Tempo</span></div>
       <div class="m"><b id="paceNow">—</b><span>Ritmo atual</span></div>
@@ -144,6 +145,7 @@ function startGps() {
   }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
   return true;
 }
+function dg(k) { run.dg = run.dg || {}; run.dg[k] = (run.dg[k] || 0) + 1; run.dgLast = k; }
 function hideBlock() { const el = $('#block'); if (el.dataset.k === 'diag') { el.hidden = true; el.dataset.k = ''; } }
 function diagnose() {
   if (!run || run.lastGood) return;
@@ -163,24 +165,26 @@ function onFix(pos) {
   // aquecimento: se em 25 s nenhum ponto passou de 65 m, aceita até 120 m (melhor do que não medir)
   if (!run.relaxed && !run.lastGood && Date.now() - run.firstFix > 25000) run.relaxed = true; // GPS fraco por muito tempo: modo tolerante até o fim
   const lim = run.relaxed ? 120 : CFG.maxAcc;
-  if (c.accuracy > lim) { run.weak = (run.weak || 0) + 1; diagnose(); render(); return; } // sinal fraco demais: ignora
+  if (c.accuracy > lim) { run.weak = (run.weak || 0) + 1; dg('fraco'); diagnose(); render(); return; } // sinal fraco demais: ignora
   hideBlock();
   // suavização: média dos últimos pontos (reduz a tremida do GPS parado)
   rawBuf.push({ lat: p.lat, lon: p.lon, t: p.t }); rawBuf = rawBuf.filter(x => p.t - x.t <= 15000).slice(-12);
-  const sm = rawBuf.slice(-5), ps = { lat: sm.reduce((a, x) => a + x.lat, 0) / sm.length, lon: sm.reduce((a, x) => a + x.lon, 0) / sm.length, t: p.t, acc: p.acc, ele: p.ele };
+  const sm = rawBuf.slice(-(c.accuracy <= 8 ? 1 : c.accuracy <= 20 ? 3 : 5)), ps = { lat: sm.reduce((a, x) => a + x.lat, 0) / sm.length, lon: sm.reduce((a, x) => a + x.lon, 0) / sm.length, t: p.t, acc: p.acc, ele: p.ele };
   // parado? 1) velocidade informada pelo GPS ou 2) deslocamento líquido pequeno em ~10 s
-  const gpsStill = c.speed != null && c.speed >= 0 && c.speed < 0.35;
+  if (c.speed != null && c.speed > 0.8) run.spdSeen = true; // só confia na velocidade do GPS se o celular já mostrou que a informa
+  run.lastSpd = c.speed;
+  const gpsStill = run.spdSeen && c.speed != null && c.speed >= 0 && c.speed < 0.35 && (!run.lastGood || hav(run.lastGood, ps) < 15);
   let netStill = false; if (rawBuf.length >= 8 && p.t - rawBuf[0].t >= 8000) { const avg = a => ({ lat: a.reduce((s, x) => s + x.lat, 0) / a.length, lon: a.reduce((s, x) => s + x.lon, 0) / a.length }); netStill = hav(avg(rawBuf.slice(0, 3)), avg(rawBuf.slice(-3))) < 5; }
   const prev = run.lastGood;
   if (!prev) { run.lastGood = ps; run.pts.push(p); save(); render(); return; }
-  if (gpsStill || netStill) { run.lastGood = ps; checkIdle(p); return; } // parado: não soma
+  if (gpsStill || netStill) { run.lastGood = ps; dg('parado'); checkIdle(p); return; } // parado: não soma
   const d = hav(prev, ps), dt = (ps.t - prev.t) / 1000;
   if (dt <= 0) return;
-  if (d > CFG.maxJump || d / dt > CFG.maxSpeed) { run.lastGood = ps; rawBuf = [rawBuf[rawBuf.length - 1]]; return; } // salto de GPS: novo segmento, sem somar
-  if (d < Math.max(CFG.minStep, Math.min(c.accuracy * CFG.stepAccFactor, CFG.stepMax))) { checkIdle(p); return; } // tremida: ainda não soma
+  if (d > CFG.maxJump || d / dt > CFG.maxSpeed) { run.lastGood = ps; rawBuf = [rawBuf[rawBuf.length - 1]]; dg('salto'); return; } // salto de GPS: novo segmento, sem somar
+  if (d < Math.max(CFG.minStep, Math.min(c.accuracy * CFG.stepAccFactor, CFG.stepMax))) { dg('acumulando'); checkIdle(p); return; } // tremida: ainda não soma
   // em movimento
   if (run.status === 'auto') { run.status = 'rec'; run.lastTick = Date.now(); say('Corrida retomada'); buzz([80]); }
-  const before = run.dist; run.dist += d; run.lastGood = ps; run.idleSince = null;
+  const before = run.dist; run.dist += d; run.lastGood = ps; run.idleSince = null; dg('usado');
   p.spm = stepCad(); run.pts.push(p);
   recentPts.push({ t: p.t, d: run.dist }); recentPts = recentPts.filter(x => p.t - x.t <= 30000);
   // parciais por km
@@ -283,6 +287,7 @@ function render() {
   $('#state').textContent = !r ? 'Pronto para começar' : waiting ? (r.fixes ? (r.lastAcc > 500 ? `Localização aproximada (±${fmtAcc(r.lastAcc)}) · veja o aviso abaixo` : `Calibrando o GPS: precisão ±${fmtAcc(r.lastAcc)} (precisa até ±${r.relaxed || Date.now() - (r.firstFix || Date.now()) > 25000 ? 120 : CFG.maxAcc} m)`) : 'Esperando a primeira localização do celular…') : r.status === 'rec' ? '● Gravando' : r.status === 'auto' ? 'Pausa automática · volte a correr' : 'Pausado';
   const dist = r ? r.dist : 0, ms = r ? r.movingMs + (r.status === 'rec' ? Date.now() - (r.lastTick || Date.now()) : 0) : 0;
   if (dist < 1000) { $('#dist').textContent = Math.round(dist).toLocaleString('pt-BR'); $('#distU').textContent = 'm'; } else { $('#dist').textContent = fmtKm(dist); $('#distU').textContent = 'km'; }
+  const g = r && r.dg || {}; $('#dbg').textContent = r ? `GPS: ${r.fixes || 0} pontos recebidos · ${g.usado || 0} usados · ${g.fraco || 0} fracos · ${g.parado || 0} parado · ${g.salto || 0} saltos${r.lastSpd != null ? ' · vel. GPS ' + (r.lastSpd * 3.6).toFixed(1) + ' km/h' : ''}` : '';
   $('#distSub').textContent = r ? `${Math.round(dist).toLocaleString('pt-BR')} metros percorridos` : '\u00a0'; $('#time').textContent = fmtT(ms);
   $('#paceAvg').textContent = dist > 50 ? fmtPace(ms / 60000 / (dist / 1000)) : '—';
   let now = '—'; if (r && r.status === 'rec' && recentPts.length > 1) { const a = recentPts[0], b = recentPts[recentPts.length - 1]; if (b.d - a.d > 20) now = fmtPace((b.t - a.t) / 60000 / ((b.d - a.d) / 1000)); }
